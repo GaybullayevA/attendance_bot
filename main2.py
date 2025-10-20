@@ -85,7 +85,7 @@ async def send_message_admins(text: str):
         admin_names = data.get("admins_name", [])
 
         if not admin_ids:
-            logging.warning("⚠️ Файл admins.json пуст или не содержит admin_ids")
+            logging.warning("⚠️ admins.json fayli bo'sh yoki admin_ids mavjud emas")
             return
 
         # Подстраховка, если списки не совпадают по длине
@@ -95,12 +95,12 @@ async def send_message_admins(text: str):
         for telegram_id, admin_name in zip(admin_ids, admin_names):
             try:
                 await bot.send_message(telegram_id, text)
-                logging.info(f"📤 Отчёт отправлен админу {admin_name} ({telegram_id})")
+                logging.info(f"📤 Xisobot adminlarga yuborildi {admin_name} ({telegram_id})")
             except Exception as send_error:
-                logging.error(f"⚠️ Ошибка при отправке админу {admin_name} ({telegram_id}): {send_error}")
+                logging.error(f"⚠️ Adminlarga yuborishda xatolik {admin_name} ({telegram_id}): {send_error}")
 
     except Exception as e:
-        logging.exception(f"Ошибка при чтении файла admins.json: {e}")
+        logging.exception(f"admins.json faylini o'qishda xatolik: {e}")
 
 
 def load_json(file_path, default=None):
@@ -109,10 +109,10 @@ def load_json(file_path, default=None):
         with open(file_path, "r", encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
-        logger.warning(f"Файл {file_path} не найден. Возвращаю default.")
+        logger.warning(f"{file_path} fayli topilmadi. Standart qiymat qo'llanilmoqda.")
         return default if default is not None else {}
     except json.JSONDecodeError as e:
-        logger.error(f"Ошибка чтения JSON из {file_path}: {e}")
+        logger.error(f"{file_path} faylini o'qishda xatolik: {e}")
         return default if default is not None else {}
 
 
@@ -125,14 +125,14 @@ def get_attendance(date_str, subject):
     """Получение данных посещаемости."""
     path = f"data/attendance_{date_str}_{subject}.json"
     if not os.path.exists(path):
-        logger.warning(f"Файл посещаемости {path} не найден.")
+        logger.warning(f"Davomat fayli {path} topilmadi.")
         return {}
 
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
-        logger.error(f"Ошибка загрузки посещаемости: {e}")
+        logger.error(f"Davomat ma'lumotlarini yuklashda xatolik: {e}")
         return {}
 
 
@@ -141,7 +141,7 @@ def check_admin(tg_id: int) -> bool:
         cfg = load_json("admins.json", {"admins_id": []})
         return tg_id in cfg.get("admins_id", [])
     except Exception as e:
-        logger.exception("Error reading admins.json")
+        logger.exception("admins.json faylini o'qishda xatolik")
         return False
 
 
@@ -150,8 +150,8 @@ def check_admin(tg_id: int) -> bool:
 # ---------------------------
 def menu_keyboard() -> InlineKeyboardMarkup:
     kb = [
-        [InlineKeyboardButton(text="Отметить посещаемость", callback_data="attendance")],
-        [InlineKeyboardButton(text="Журнал посещаемости", callback_data="jurnal")],
+        [InlineKeyboardButton(text="Davomat qilish", callback_data="attendance")],
+        [InlineKeyboardButton(text="Davomat jurnali", callback_data="jurnal")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
@@ -166,8 +166,8 @@ def subject_keyboard(subjects: List[str]) -> InlineKeyboardMarkup:
 
 def student_keyboard(students: Dict[str, List[str]], attendance: Dict[str, Dict[str, str]]) -> InlineKeyboardMarkup:
     """
-    students: {"names": [...]}
-    attendance: { student_name: {"status": "...", "reason": "..."} }
+    Talabalar uchun davomat belgilash tugmalari.
+    Holatlar: present, absent, reason, late
     """
     rows = []
     for s in students.get("names", []):
@@ -175,23 +175,31 @@ def student_keyboard(students: Dict[str, List[str]], attendance: Dict[str, Dict[
         status = data.get("status", "absent")
         reason = data.get("reason", "")
 
-        emoji = "✅" if status == "present" else "📝" if status == "reason" else "❌"
+        if status == "present":
+            emoji = "✅"
+        elif status == "late":
+            emoji = "⏰"
+        elif status == "reason":
+            emoji = "📝"
+        else:
+            emoji = "❌"
+
         label = f"{emoji} {s}"
         if reason:
             label += f" ({reason})"
 
-        # кнопки: переключить, изменить причину, удалить причину (если есть)
+        # Asosiy tugmalar
         row = [
             InlineKeyboardButton(text=label, callback_data=f"toggle_{quote(s, safe='')}"),
-            InlineKeyboardButton(text="✏️", callback_data=f"reason_{quote(s, safe='')}")
+            InlineKeyboardButton(text="⏰ Kech keldi", callback_data=f"late_{quote(s, safe='')}"),
+            InlineKeyboardButton(text="✏️ Sabab qoʻshish", callback_data=f"reason_{quote(s, safe='')}"),
         ]
-        if reason:
-            row.append(InlineKeyboardButton(text="🗑", callback_data=f"delreason_{quote(s, safe='')}"))
 
         rows.append(row)
 
-    rows.append([InlineKeyboardButton(text="✅ Готово", callback_data="done_marking")])
+    rows.append([InlineKeyboardButton(text="✅ Tayyor", callback_data="done_marking")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
 
 
 def subject_keyboard_journal(subjects: List[str], date: datetime) -> InlineKeyboardMarkup:
@@ -253,7 +261,7 @@ def dates_keyboard(active_dates: List[datetime], year: int = None, month: int = 
 @dp.message(Command("start"))
 async def start(message: Message):
     if not check_admin(message.from_user.id):
-        await message.answer("🚫 У вас нет прав администратора.")
+        await message.answer("🚫 Sizda admin huquqlari yo'q.")
         return
 
     schedule = load_json("schedules.json", {})
@@ -261,10 +269,10 @@ async def start(message: Message):
     subjects = schedule.get(today_name, [])
 
     if not subjects:
-        await message.answer(f"📅 Сегодня ({today_name}) нет занятий.")
+        await message.answer(f"📅 Bugun ({today_name}) darslar mavjud emas.")
         return
 
-    await message.answer(f"📚 Предметы на сегодня ({today_name}):", reply_markup=menu_keyboard())
+    await message.answer(f"📚 Bugungi darslar ({today_name}):", reply_markup=menu_keyboard())
 
 
 @dp.callback_query(F.data == "attendance")
@@ -272,7 +280,7 @@ async def attendance(callback: CallbackQuery):
     schedule = load_json("schedules.json", {})
     today_name = get_tashkent_weekday()
     subjects = schedule.get(today_name, [])
-    await callback.message.edit_text("Выберите предмет:", reply_markup=subject_keyboard(subjects))
+    await callback.message.edit_text("Fanlardan birini tanlang:", reply_markup=subject_keyboard(subjects))
     await callback.answer()
 
 
@@ -289,7 +297,7 @@ async def choose_subject(callback: CallbackQuery):
         attendance.setdefault(s, {"status": "absent", "reason": ""})
 
     save_json(filename, attendance)
-    await callback.message.edit_text(f"📘 Предмет: {subject}\nОтметьте студентов:", reply_markup=student_keyboard(students, attendance))
+    await callback.message.edit_text(f"📘 Fan: {subject}\nStudentlarni bergilang:", reply_markup=student_keyboard(students, attendance))
     await callback.answer()
 
 
@@ -301,7 +309,7 @@ async def toggle_attendance(callback: CallbackQuery):
     if ":" in header:
         subject = header.split(":", 1)[1].strip()
     else:
-        await callback.answer("Не могу определить предмет.", show_alert=True)
+        await callback.answer("Fanni aniqlab bo'lmadi.", show_alert=True)
         return
 
     student_token = callback.data.replace("toggle_", "", 1)
@@ -318,7 +326,7 @@ async def toggle_attendance(callback: CallbackQuery):
 
     save_json(filename, attendance)
     students = load_json("students.json", {"names": []})
-    await callback.message.edit_text(f"📘 Предмет: {subject}\nОтметьте студентов:", reply_markup=student_keyboard(students, attendance))
+    await callback.message.edit_text(f"📘 Fan: {subject}\nStudentlarni belgilang:", reply_markup=student_keyboard(students, attendance))
     await callback.answer()
 
 
@@ -332,7 +340,7 @@ async def ask_reason(callback: CallbackQuery, state: FSMContext):
     subject = header.split(":", 1)[1].strip() if ":" in header else "Unknown"
 
     await state.update_data(student=student, subject=subject, message_id=callback.message.message_id)
-    await callback.message.answer(f"✏️ Введите причину для {student}:")
+    await callback.message.answer(f"✏️ {student} uchun sababni kiriting:")
     await state.set_state(ReasonState.waiting_for_reason)
     await callback.answer()
 
@@ -352,39 +360,41 @@ async def save_reason(message: Message, state: FSMContext):
     students = load_json("students.json", {"names": []})
     kb = student_keyboard(students, attendance)
 
-    await message.answer(f"📝 Причина для {student} сохранена: {reason}")
+    await message.answer(f"📝 {student} uchun sabab saqlandi: {reason}")
     # редактируем исходное сообщение, передавая ранее сохранённые chat_id/message_id
     await bot.edit_message_text(chat_id=message.chat.id, message_id=data["message_id"],
-                                text=f"📘 Предмет: {subject}\nОтметьте студентов:", reply_markup=kb)
+                                text=f"📘 Fan: {subject}\nStudentlarni belgilang:", reply_markup=kb)
     await state.clear()
 
 
-@dp.callback_query(F.data.startswith("delreason_"))
-async def delete_reason(callback: CallbackQuery):
+@dp.callback_query(F.data.startswith("late_"))
+async def mark_late(callback: CallbackQuery):
     header = callback.message.text.split("\n", 1)[0]
     subject = header.split(":", 1)[1].strip() if ":" in header else "Unknown"
 
-    student_token = callback.data.replace("delreason_", "", 1)
+    student_token = callback.data.replace("late_", "", 1)
     student = unsafe_subject_from_token(student_token)
 
     filename = get_today_filename(subject)
     attendance = load_json(filename, {})
-    if student in attendance:
-        attendance[student]["reason"] = ""
-        attendance[student]["status"] = "absent"
+
+    attendance[student] = {"status": "late", "reason": ""}
 
     save_json(filename, attendance)
     students = load_json("students.json", {"names": []})
-    await callback.message.edit_text(f"📘 Предмет: {subject}\nОтметьте студентов:", reply_markup=student_keyboard(students, attendance))
-    await callback.answer("Причина удалена ✅")
 
+    await callback.message.edit_text(
+        f"📘 Fan: {subject}\nStudentlarni belgilang:",
+        reply_markup=student_keyboard(students, attendance)
+    )
+    await callback.answer(f"⏰ {student} kechikkan sifatida belgilandi.")
 
 @dp.callback_query(F.data == "done_marking")
 async def done(callback: CallbackQuery):
     try:
         # Извлекаем предмет из текста сообщения
         text = callback.message.text
-        subject = text.split(":")[1].split("\n")[0].strip() if ":" in text else "Неизвестный предмет"
+        subject = text.split(":")[1].split("\n")[0].strip() if ":" in text else "Noma'lum fan"
 
         # Загружаем данные посещаемости
         filename = get_today_filename(subject)
@@ -392,18 +402,20 @@ async def done(callback: CallbackQuery):
 
         # Формируем красивый отчёт
         date_str = datetime.now().strftime("%d.%m.%Y")
-        report = f"📘 Посещаемость завершена\n📚 Предмет: {subject}\n📅 Дата: {date_str}\n\n"
+        report = f"📘 Davomat yakunlandi\n📚 Fan: {subject}\n📅 Sana: {date_str}\n\n"
 
         present = [s for s, info in attendance.items() if info.get("status") == "present"]
         absent = [s for s, info in attendance.items() if info.get("status") == "absent"]
         reasoned = [f"{s} — {info.get('reason')}" for s, info in attendance.items() if info.get("status") == "reason"]
+        late = [s for s, info in attendance.items() if info.get("status") == "late"]
 
-        report += f"✅ Присутствовали ({len(present)}):\n" + ("\n".join(present) if present else "—") + "\n\n"
-        report += f"❌ Отсутствовали ({len(absent)}):\n" + ("\n".join(absent) if absent else "—") + "\n\n"
-        report += f"📝 По уважительной причине ({len(reasoned)}):\n" + ("\n".join(reasoned) if reasoned else "—")
+        report += f"✅ Darsda bo'lganlar ({len(present)}):\n" + ("\n".join(present) if present else "—") + "\n\n"
+        report += f"❌ Darsda bo'lmaganlar ({len(absent)}):\n" + ("\n".join(absent) if absent else "—") + "\n\n"
+        report += f"📝 Sabablilar ({len(reasoned)}):\n" + ("\n".join(reasoned) if reasoned else "—") + "\n\n"
+        report += f"⏰ Kech qolganlar: ({len(late)}):\n" + ("\n".join(late) if late else "—")
 
         # Отправляем сообщение пользователю
-        await callback.message.edit_text("✅ Посещаемость сохранена и отправлена администраторам!")
+        await callback.message.edit_text("✅ Davomat saqlandi va adminlarga yuborildi!")
         await callback.answer()
 
         # Отправляем отчёт администраторам
@@ -411,7 +423,7 @@ async def done(callback: CallbackQuery):
 
     except Exception as e:
         logging.exception(f"Ошибка при завершении отметки посещаемости: {e}")
-        await callback.message.answer("❌ Произошла ошибка при сохранении посещаемости. Попробуйте снова.")
+        await callback.message.answer("❌ Davomatni saqlashda xatolik yuz berdi. Qaytadan urinib ko'ring.")
 
 
 @dp.callback_query(F.data == "jurnal")
@@ -431,7 +443,7 @@ async def jurnal(callback: CallbackQuery):
 
     dates = sorted({d.date() for d in dates})
     keyboard = dates_keyboard([datetime.combine(d, datetime.min.time()) for d in dates])
-    await callback.message.edit_text("📅 Выберите день:", reply_markup=keyboard)
+    await callback.message.edit_text("📅 Kunni tanlang:", reply_markup=keyboard)
     await callback.answer()
 
 
@@ -454,7 +466,7 @@ async def change_month(callback: CallbackQuery):
             continue
 
     keyboard = dates_keyboard([d for d in dates], year=year, month=month)
-    await callback.message.edit_text("📅 Выберите день:", reply_markup=keyboard)
+    await callback.message.edit_text("📅 Kunni tanlang:", reply_markup=keyboard)
     await callback.answer()
 
 
@@ -466,7 +478,7 @@ async def get_date_subject(callback: CallbackQuery):
     schedule = load_json("schedules.json", {})
     subjects = schedule.get(date.strftime("%A"), [])
 
-    await callback.message.edit_text("Выберите предмет, который хотите посмотреть:",
+    await callback.message.edit_text("Ko'rmoqchi bo'lgan fanni tanlang:",
                                     reply_markup=subject_keyboard_journal(subjects, date))
     await callback.answer()
 
@@ -478,33 +490,34 @@ async def handle_subject(callback: CallbackQuery):
         # Безопасный парсинг данных
         parts = callback.data.split("_", 2)
         if len(parts) < 3:
-            await callback.answer("❌ Некорректные данные кнопки.", show_alert=True)
+            await callback.answer("❌ Tugma ma'lumotlari noto'g'ri.", show_alert=True)
             logger.error(f"Некорректный callback_data: {callback.data}")
             return
 
         _, subject_raw, date_str = parts
-        subject = subject_raw.replace("_", " ")
+
 
         # Проверка формата даты
         try:
             date = datetime.strptime(date_str, "%Y-%m-%d")
         except ValueError:
-            await callback.answer("❌ Ошибка формата даты.", show_alert=True)
+            await callback.answer("❌ Sana formati noto'g'ri.", show_alert=True)
             logger.error(f"Ошибка парсинга даты: {date_str}")
             return
 
         # Загрузка посещаемости
-        attendance = get_attendance(date.strftime('%Y-%m-%d'), subject)
+        attendance = get_attendance(date.strftime('%Y-%m-%d'), subject_raw)
+        subject = subject_raw.replace("%20", " ")
         if not attendance:
             await callback.message.edit_text(
-                f"📘 Предмет: {subject}\n📅 Дата: {date.strftime('%d.%m.%Y')}\n\nНет данных о посещаемости."
+                f"📘 Fan: {subject}\n📅 Sana: {date.strftime('%d.%m.%Y')}\n\nDavomat bo'yicha ma'lumot mavjud emas."
             )
             return
 
         # Формирование текста
         text_lines = [
-            f"📘 Посещаемость по предмету: {subject}",
-            f"📅 Дата: {date.strftime('%d.%m.%Y')}",
+            f"📘 Fan bo'yicha davomat: {subject}",
+            f"📅 Sana: {date.strftime('%d.%m.%Y')}",
             "",
         ]
 
@@ -522,14 +535,14 @@ async def handle_subject(callback: CallbackQuery):
 
     except Exception as e:
         logger.exception("Ошибка при обработке предмета:")
-        await callback.answer("⚠️ Произошла ошибка. Попробуйте позже.", show_alert=True)
+        await callback.answer("⚠️ Xatolik yuz berdi. Iltimos, keyinroq urinib ko'ring.", show_alert=True)
 
 
 # ---------------------------
 # Run
 # ---------------------------
 async def main():
-    logger.info("Бот запущен ✅")
+    logger.info("Bot ishga tushdi ✅")
     await dp.start_polling(bot)
 
 
