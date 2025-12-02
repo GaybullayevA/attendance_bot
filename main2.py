@@ -4,16 +4,18 @@ import json
 import logging
 import os
 from datetime import datetime
+from gc import callbacks
 from typing import Any, Dict, List
 
 import pytz
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
+from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
-    CallbackQuery,
+    CallbackQuery, ReplyKeyboardMarkup,
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -28,7 +30,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------
 # Config
 # ---------------------------
-API_TOKEN = "8008942725:AAEE_Z1-CQRErZ3i2GLsuXRHhLxjNfcv9uw"
+API_TOKEN = "7770394551:AAFUOqcwVBJEz798P5MBAfwR-OR466vXqSM"
 TIMEZONE = "Asia/Tashkent"
 DATA_DIR = "data"
 
@@ -39,12 +41,16 @@ os.makedirs(DATA_DIR, exist_ok=True)
 # ---------------------------
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
-
 # ---------------------------
 # FSM
 # ---------------------------
 class ReasonState(StatesGroup):
     waiting_for_reason = State()
+
+class Steps(StatesGroup):
+    attendance = State()
+    choose_subject = State()
+    jurnal = State()
 
 
 # ---------------------------
@@ -144,16 +150,22 @@ def check_admin(tg_id: int) -> bool:
         logger.exception("admins.json faylini o'qishda xatolik")
         return False
 
+def check_teacher(tg_id: int) -> bool:
+    try:
+        cfg = load_json("teachers.json", {"teacher_id": []})
+        return tg_id in cfg.get("teacher_id", [])
+    except Exception as e:
+        logger.exception("teachers.json faylini o'qishda xatolik")
+        return False
 
 # ---------------------------
 # Keyboards
 # ---------------------------
-def menu_keyboard() -> InlineKeyboardMarkup:
+def menu_keyboard() -> List:
     kb = [
-        [InlineKeyboardButton(text="Davomat qilish", callback_data="attendance")],
-        [InlineKeyboardButton(text="Davomat jurnali", callback_data="jurnal")],
+        [InlineKeyboardButton(text="Davomat jurnali", callback_data="jurnal")]
     ]
-    return InlineKeyboardMarkup(inline_keyboard=kb)
+    return kb
 
 
 def subject_keyboard(subjects: List[str]) -> InlineKeyboardMarkup:
@@ -161,6 +173,7 @@ def subject_keyboard(subjects: List[str]) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text=s, callback_data=f"subject_{quote(s, safe='')}")] for s in subjects
     ]
+    buttons.append([InlineKeyboardButton(text="◀️Orqaga", callback_data="back")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -197,7 +210,7 @@ def student_keyboard(students: Dict[str, List[str]], attendance: Dict[str, Dict[
 
         rows.append(row)
 
-    rows.append([InlineKeyboardButton(text="✅ Tayyor", callback_data="done_marking")])
+    rows.append([InlineKeyboardButton(text="✅ Tayyor", callback_data="done_marking"), InlineKeyboardButton(text="◀️Orqaga", callback_data="back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -213,9 +226,6 @@ def subject_keyboard_journal(subjects: List[str], date: datetime) -> InlineKeybo
 
 
 def dates_keyboard(active_dates: List[datetime], year: int = None, month: int = None) -> InlineKeyboardMarkup:
-    """
-    Рисует календарь для month/year. active_dates — список datetime объектов, которые будем считать активными.
-    """
     now = tz_now()
     year = year or now.year
     month = month or now.month
@@ -223,72 +233,79 @@ def dates_keyboard(active_dates: List[datetime], year: int = None, month: int = 
     month_days = calendar.monthcalendar(year, month)
     keyboard = []
 
-    # header with navigation
+    # header navigation
     prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
     next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
 
     keyboard.append([
         InlineKeyboardButton(text="⏪", callback_data=f"month_{prev_year}_{prev_month}"),
-        InlineKeyboardButton(text=f"{calendar.month_name[month]} {year}", callback_data="ignore"),
+        InlineKeyboardButton(text=f"{calendar.month_name[month]} {year}", callback_data="noop"),
         InlineKeyboardButton(text="⏩", callback_data=f"month_{next_year}_{next_month}"),
     ])
 
     # week days
     week_days = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
-    keyboard.append([InlineKeyboardButton(text=d, callback_data="ignore") for d in week_days])
+    keyboard.append([InlineKeyboardButton(text=d, callback_data="noop") for d in week_days])
 
+    # prepare active dates
     active_set = {d.strftime("%Y-%m-%d") for d in active_dates}
 
     for week in month_days:
         row = []
         for day in week:
             if day == 0:
-                row.append(InlineKeyboardButton(text=" ", callback_data="ignore"))
+                row.append(InlineKeyboardButton(text=" ", callback_data="noop"))
             else:
                 date_str = f"{year}-{month:02d}-{day:02d}"
-                if date_str in active_set:
-                    row.append(InlineKeyboardButton(text=str(day), callback_data=f"date_{date_str}"))
+                in_active = date_str in active_set
+
+                if in_active:
+                    row.append(InlineKeyboardButton(text=f"{day:2d}", callback_data=f"date_{date_str}"))
                 else:
-                    row.append(InlineKeyboardButton(text=f"·{day}·", callback_data="ignore"))
+                    row.append(InlineKeyboardButton(text="".join(ch + "\u0336" for ch in f"{day}"), callback_data="noop"))
         keyboard.append(row)
 
+    keyboard.append([InlineKeyboardButton(text="◀️Orqaga", callback_data="back")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 
 
 # ---------------------------
 # Handlers
 # ---------------------------
 @dp.message(Command("start"))
-async def start(message: Message):
-    if not check_admin(message.from_user.id):
-        await message.answer("🚫 Sizda admin huquqlari yo'q.")
+async def start(message: Message, state: FSMContext):
+    chck_admim =  check_admin(message.from_user.id)
+    chck_teacher = check_teacher(message.from_user.id)
+
+    if not chck_admim and not chck_teacher:
+        await message.answer("🚫 Sizda kerakli huquqlari yo'q.")
         return
 
-    schedule = load_json("schedules.json", {})
     today_name = get_tashkent_weekday()
-    subjects = schedule.get(today_name, [])
-
-    if not subjects:
-        await message.answer(f"📅 Bugun ({today_name}) darslar mavjud emas.")
-        return
-
-    await message.answer(f"📚 Bugungi darslar ({today_name}):", reply_markup=menu_keyboard())
-
+    await state.clear()
+    menu_kb = menu_keyboard()
+    if chck_admim:
+        menu_kb.insert(0, [InlineKeyboardButton(text="Davomat qilish", callback_data="attendance")])
+        await message.answer(f"📚 Bugungi kun ({today_name}):", reply_markup=InlineKeyboardMarkup(inline_keyboard=menu_kb))
+    elif chck_teacher:
+        await message.answer(f"📚 Bugungi kun ({today_name}):", reply_markup=InlineKeyboardMarkup(inline_keyboard=menu_kb))
 
 @dp.callback_query(F.data == "attendance")
-async def attendance(callback: CallbackQuery):
+async def attendance(callback: CallbackQuery, state: FSMContext):
     schedule = load_json("schedules.json", {})
     today_name = get_tashkent_weekday()
     subjects = schedule.get(today_name, [])
+    await state.set_state(Steps.attendance)
     await callback.message.edit_text("Fanlardan birini tanlang:", reply_markup=subject_keyboard(subjects))
     await callback.answer()
 
 
 @dp.callback_query(F.data.startswith("subject_"))
-async def choose_subject(callback: CallbackQuery):
+async def choose_subject(callback: CallbackQuery, state: FSMContext):
     token = callback.data.replace("subject_", "", 1)
     subject = unsafe_subject_from_token(token)
-
+    await state.set_state(Steps.choose_subject)
     students = load_json("students.json", {"names": []})
     filename = get_today_filename(subject)
     attendance = load_json(filename, {})
@@ -329,7 +346,30 @@ async def toggle_attendance(callback: CallbackQuery):
     await callback.message.edit_text(f"📘 Fan: {subject}\nStudentlarni belgilang:", reply_markup=student_keyboard(students, attendance))
     await callback.answer()
 
+@dp.callback_query(F.data.startswith("back"), StateFilter(Steps.attendance, Steps.jurnal))
+async def back(callback: CallbackQuery, state: FSMContext, ):
+    await state.clear()
+    chck_admim = check_admin(callback.from_user.id)
+    chck_teacher = check_teacher(callback.from_user.id)
 
+    if not chck_admim and not chck_teacher:
+        await callback.message.edit_text("🚫 Sizda kerakli huquqlari yo'q.")
+        return
+
+    today_name = get_tashkent_weekday()
+    menu_kb = menu_keyboard()
+    if chck_admim:
+        menu_kb.insert(0, [InlineKeyboardButton(text="Davomat qilish", callback_data="attendance")])
+        await callback.message.edit_text(f"📚 Bugungi darslar ({today_name}):",
+                             reply_markup=InlineKeyboardMarkup(inline_keyboard=menu_kb))
+    elif chck_teacher:
+        await callback.message.edit_text(f"📚 Bugungi darslar ({today_name}):",
+                             reply_markup=InlineKeyboardMarkup(inline_keyboard=menu_kb))
+
+
+@dp.callback_query(F.data.startswith("back"), StateFilter(Steps.choose_subject))
+async def back(callback: CallbackQuery, state: FSMContext, ):
+    await attendance(callback=callback, state=state)
 @dp.callback_query(F.data.startswith("reason_"))
 async def ask_reason(callback: CallbackQuery, state: FSMContext):
     student_token = callback.data.replace("reason_", "", 1)
@@ -427,7 +467,7 @@ async def done(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data == "jurnal")
-async def jurnal(callback: CallbackQuery):
+async def jurnal(callback: CallbackQuery, state: FSMContext):
     files = os.listdir(DATA_DIR)
     dates = []
     for filename in files:
@@ -443,6 +483,7 @@ async def jurnal(callback: CallbackQuery):
 
     dates = sorted({d.date() for d in dates})
     keyboard = dates_keyboard([datetime.combine(d, datetime.min.time()) for d in dates])
+    await state.set_state(Steps.jurnal)
     await callback.message.edit_text("📅 Kunni tanlang:", reply_markup=keyboard)
     await callback.answer()
 
@@ -466,7 +507,7 @@ async def change_month(callback: CallbackQuery):
             continue
 
     keyboard = dates_keyboard([d for d in dates], year=year, month=month)
-    await callback.message.edit_text("📅 Kunni tanlang:", reply_markup=keyboard)
+    await callback.message.edit_text("📅 Kunni tanlang:", reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
 
 

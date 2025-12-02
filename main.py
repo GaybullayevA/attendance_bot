@@ -155,7 +155,7 @@ def dates_keyboard(active_dates, year=None, month=None):
                     row.append(InlineKeyboardButton(text=str(day), callback_data=f"date_{date_str}"))
                 else:
                     # Неактивный день — просто текст
-                    row.append(InlineKeyboardButton(text=f"·{day}·", callback_data="ignore"))
+                    row.append(InlineKeyboardButton(text=f"~~{day}~~", callback_data="ignore"))
         keyboard.append(row)
 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
